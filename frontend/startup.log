@@ -21,3 +21,7 @@ nohup: ignoring input
 ✓ Compiled in 73ms
 ✓ Compiled in 59ms
 ✓ Compiled in 54ms
+✓ Compiled in 76ms
+✓ Compiled in 61ms
+ GET /dashboard 200 in 43ms (compile: 6ms, render: 37ms)
+ GET /editor?file=video.mp4 200 in 100ms (compile: 69ms, render: 31ms)

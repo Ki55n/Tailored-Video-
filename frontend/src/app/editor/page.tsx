@@ -61,6 +61,27 @@ function EditorContent() {
         }
     ]);
     const chatEndRef = useRef<HTMLDivElement>(null);
+    const [loadingMessage, setLoadingMessage] = useState('Initializing...');
+
+    // Cycle loading messages
+    useEffect(() => {
+        if (isGenerating) {
+            const messages = [
+                "Analyzing video content...",
+                "Identifying scenes...",
+                "Applying AI enhancements...",
+                "Rendering visual effects...",
+                "Finalizing edit..."
+            ];
+            setLoadingMessage(messages[0]);
+            let i = 0;
+            const interval = setInterval(() => {
+                i = (i + 1) % messages.length;
+                setLoadingMessage(messages[i]);
+            }, 2000);
+            return () => clearInterval(interval);
+        }
+    }, [isGenerating]);
 
     // Initial scroll to bottom
     useEffect(() => {
@@ -315,24 +336,6 @@ function EditorContent() {
 
                 {/* Input Area */}
                 <div className="p-4 bg-surface border-t border-border-dim space-y-4">
-                    {/* Suggested Chips */}
-                    {!isGenerating && (
-                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none mask-fade-right">
-                            {SUGGESTED_ACTIONS.map((action, i) => (
-                                <button
-                                    key={i}
-                                    onClick={() => {
-                                        setAiQuery(action.query);
-                                        inputRef.current?.focus();
-                                    }}
-                                    className="px-3 py-1.5 bg-deep-slate hover:bg-white/10 border border-white/5 hover:border-electric-blue/50 rounded-full text-xs text-white/80 hover:text-white transition-all whitespace-nowrap flex items-center gap-1.5 shadow-sm"
-                                >
-                                    {action.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
                     {/* Text Input */}
                     <div className="relative">
                         <textarea

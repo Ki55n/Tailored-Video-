@@ -141,8 +141,9 @@ async def generate_edit(filename: str = Form(...), query: str = Form("")):
              # If original upload is missing too, we can't do anything
              pass
 
+    import random
     # Simulate processing delay
-    await asyncio.sleep(2)
+    await asyncio.sleep(random.randint(5, 10))
 
     size_mb = 0
     if output_path.exists():

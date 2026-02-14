@@ -27,3 +27,8 @@ nohup: ignoring input
  GET /editor?file=video.mp4 200 in 100ms (compile: 69ms, render: 31ms)
 ✓ Compiled in 127ms
  GET /dashboard 200 in 68ms (compile: 19ms, render: 49ms)
+ GET /render 200 in 1309ms (compile: 1266ms, render: 43ms)
+ GET /dashboard 200 in 45ms (compile: 7ms, render: 38ms)
+ GET /editor?file=video.mp4 200 in 130ms (compile: 82ms, render: 48ms)
+ GET /dashboard 200 in 36ms (compile: 7ms, render: 28ms)
+ GET /editor?file=video.mp4 200 in 36ms (compile: 4ms, render: 32ms)

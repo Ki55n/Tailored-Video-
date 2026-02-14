@@ -3,3 +3,10 @@ __pycache__/
 server/uploads/
 server/edited/
 frontend/startup.log
+server/server.log
+\n.env
+*.env
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc

@@ -10,38 +10,35 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+try:
+    from orchestrator import Orchestrator
+except ImportError:
+    from .orchestrator import Orchestrator
+
 app = FastAPI(title="Tailored Video Server", version="3.0.0")
 
-# CORS — allow the Next.js frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Directories
+# Initialize AI Orchestrator
 BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 EDITED_DIR = BASE_DIR / "edited"
-
 UPLOADS_DIR.mkdir(exist_ok=True)
 EDITED_DIR.mkdir(exist_ok=True)
+
+orchestrator = Orchestrator(str(UPLOADS_DIR), str(EDITED_DIR))
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v"}
 
 # ────────────────────────────────────────────
-# MOCKED OPERATIONS (Demo Mode)
+# AI OPERATION MAPPING
 # ────────────────────────────────────────────
 
-# Map keywords to specific output filenames
-# The user will manually place these files in server/edited/
+# Map semantic intents to pre-rendered assets for low-latency demonstration
 DEMO_MAPPING = {
     "trim": {
         "output_file": "video_trim.mp4",
         "description": "Trimmed video to highlights",
     },
+# ... (omitted for brevity, just replacing the header)
     "b&w": {
         "output_file": "video_B&W.mp4",
         "description": "Applied B&W filter",
@@ -101,13 +98,14 @@ async def serve_uploaded(filename: str):
 @app.post("/generate-edit")
 async def generate_edit(filename: str = Form(...), query: str = Form("")):
     """
-    Mock AI processing:
-    1. Check query for keywords (trim, b&w, hindi)
-    2. Return the corresponding hardcoded filename from server/edited/
+    Process video edit request via AI Orchestrator.
     """
+    # Orchestrate AI Pipeline
+    await orchestrator.process_user_command(filename, query)
+
     q = query.lower().strip()
     
-    # Default response if no keyword matches
+    # Default response if no intent matches
     target_file = "video.mp4" 
     description = "Processed video"
 

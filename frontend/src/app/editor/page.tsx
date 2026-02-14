@@ -22,7 +22,6 @@ interface ChatEntry {
 }
 
 const SUGGESTED_ACTIONS = [
-    { label: "✂️ Trim Silence", query: "trim the video to remove silence" },
     { label: "🎨 Cinematic B&W", query: "apply black and white cinematic filter" },
     { label: "🗣️ Translate to Hindi", query: "translate audio to hindi" },
     { label: "⚡ Make Viral", query: "speed up and add captions" },
@@ -52,6 +51,7 @@ function EditorContent() {
 
     // Chat State
     const [aiQuery, setAiQuery] = useState('');
+    const inputRef = useRef<HTMLTextAreaElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [chatHistory, setChatHistory] = useState<ChatEntry[]>([
         {
@@ -256,10 +256,10 @@ function EditorContent() {
                                 {/* Message Bubble */}
                                 <div className="flex flex-col gap-1">
                                     <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${entry.type === 'user'
-                                            ? 'bg-electric-blue text-white rounded-tr-none'
-                                            : entry.type === 'error'
-                                                ? 'bg-danger/10 border border-danger/20 text-danger rounded-tl-none'
-                                                : 'bg-deep-slate border border-white/5 text-white/90 rounded-tl-none'
+                                        ? 'bg-electric-blue text-white rounded-tr-none'
+                                        : entry.type === 'error'
+                                            ? 'bg-danger/10 border border-danger/20 text-danger rounded-tl-none'
+                                            : 'bg-deep-slate border border-white/5 text-white/90 rounded-tl-none'
                                         }`}>
                                         <div dangerouslySetInnerHTML={{ __html: entry.message.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-bold">$1</strong>') }} />
                                     </div>
@@ -321,7 +321,10 @@ function EditorContent() {
                             {SUGGESTED_ACTIONS.map((action, i) => (
                                 <button
                                     key={i}
-                                    onClick={() => handleGenerateEdit(action.query)}
+                                    onClick={() => {
+                                        setAiQuery(action.query);
+                                        inputRef.current?.focus();
+                                    }}
                                     className="px-3 py-1.5 bg-deep-slate hover:bg-white/10 border border-white/5 hover:border-electric-blue/50 rounded-full text-xs text-white/80 hover:text-white transition-all whitespace-nowrap flex items-center gap-1.5 shadow-sm"
                                 >
                                     {action.label}
@@ -333,6 +336,7 @@ function EditorContent() {
                     {/* Text Input */}
                     <div className="relative">
                         <textarea
+                            ref={inputRef}
                             value={aiQuery}
                             onChange={(e) => setAiQuery(e.target.value)}
                             onKeyDown={handleKeyDown}

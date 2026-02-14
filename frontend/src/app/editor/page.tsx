@@ -1,22 +1,40 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Play, Pause, Volume2, Maximize2, Undo2, Redo2,
     Share2, Scissors, Copy, Magnet, ChevronDown,
-    Sparkles, Eye, Trash2, Search
+    Sparkles, Eye, Trash2, Search, Loader2, CheckCircle, Download
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import Button from '@/components/atoms/Button';
 import Toggle from '@/components/atoms/Toggle';
 import Slider from '@/components/atoms/Slider';
 import { useTimelineStore } from '@/stores/useTimelineStore';
 
+const API_BASE = 'http://localhost:8000';
+
 export default function EditorPage() {
+    return (
+        <Suspense fallback={
+            <div className="flex items-center justify-center h-screen bg-void-black">
+                <Loader2 className="w-8 h-8 text-electric-blue animate-spin" />
+            </div>
+        }>
+            <EditorContent />
+        </Suspense>
+    );
+}
+
+function EditorContent() {
     const {
         segments, playheadPosition, isMagnetEnabled, zoomLevel,
         toggleMagnet, setZoomLevel, setPlayhead, duration
     } = useTimelineStore();
+
+    const searchParams = useSearchParams();
+    const uploadedFile = searchParams.get('file') || '';
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [opacity, setOpacity] = useState(85);
@@ -24,6 +42,85 @@ export default function EditorPage() {
     const [bgRemoval, setBgRemoval] = useState(true);
     const [smartUpscale, setSmartUpscale] = useState(false);
     const [eyeContact, setEyeContact] = useState(false);
+
+    // AI Command Bar state
+    const [aiQuery, setAiQuery] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [generationProgress, setGenerationProgress] = useState(0);
+    const [editedVideoUrl, setEditedVideoUrl] = useState<string | null>(null);
+    const [showSuccess, setShowSuccess] = useState(false);
+
+    // Video refs
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Video source — either the uploaded original or the edited version
+    const videoSrc = editedVideoUrl
+        ? editedVideoUrl
+        : uploadedFile
+            ? `${API_BASE}/uploads/${encodeURIComponent(uploadedFile)}`
+            : '';
+
+    const handlePlayPause = () => {
+        if (!videoRef.current) return;
+        if (isPlaying) {
+            videoRef.current.pause();
+        } else {
+            videoRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+    };
+
+    const handleGenerateEdit = async () => {
+        if (!uploadedFile || !aiQuery.trim()) return;
+
+        setIsGenerating(true);
+        setGenerationProgress(0);
+        setShowSuccess(false);
+        setEditedVideoUrl(null);
+
+        // Simulate progress while waiting for API
+        const progressInterval = setInterval(() => {
+            setGenerationProgress((prev) => {
+                if (prev >= 90) return 90;
+                return prev + Math.random() * 15;
+            });
+        }, 300);
+
+        try {
+            const formData = new FormData();
+            formData.append('filename', uploadedFile);
+            formData.append('query', aiQuery);
+
+            const res = await fetch(`${API_BASE}/generate-edit`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+
+            clearInterval(progressInterval);
+            setGenerationProgress(100);
+
+            if (data.status === 'success') {
+                // Set the edited video URL
+                setEditedVideoUrl(`${API_BASE}${data.download_url}`);
+                setShowSuccess(true);
+
+                // Reset success state after a few seconds
+                setTimeout(() => setShowSuccess(false), 5000);
+            }
+        } catch (err) {
+            console.error('Generate edit failed:', err);
+            clearInterval(progressInterval);
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !isGenerating) {
+            handleGenerateEdit();
+        }
+    };
 
     const formatTime = (seconds: number) => {
         const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -57,7 +154,7 @@ export default function EditorPage() {
                         TAILORED <span className="font-black">VIDEO</span>
                     </h1>
                     <span className="text-xs text-muted flex items-center gap-1">
-                        PROJECT: <span className="text-white font-medium">CINEMATIC_SEQUENCE_01</span>
+                        PROJECT: <span className="text-white font-medium">{uploadedFile || 'CINEMATIC_SEQUENCE_01'}</span>
                         <ChevronDown className="w-3 h-3" />
                     </span>
                 </div>
@@ -65,6 +162,11 @@ export default function EditorPage() {
                     <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Undo2 className="w-4 h-4" /></button>
                     <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Redo2 className="w-4 h-4" /></button>
                     <Button variant="secondary" size="sm" icon={<Share2 className="w-3.5 h-3.5" />}>Share</Button>
+                    {editedVideoUrl && (
+                        <a href={editedVideoUrl} download className="inline-flex">
+                            <Button size="sm" icon={<Download className="w-3.5 h-3.5" />}>DOWNLOAD</Button>
+                        </a>
+                    )}
                     <Button size="sm">EXPORT</Button>
                 </div>
             </header>
@@ -76,30 +178,51 @@ export default function EditorPage() {
                     {/* Preview */}
                     <div className="flex-1 relative flex items-center justify-center p-4">
                         <div className="relative w-full max-w-3xl aspect-video bg-deep-slate rounded-lg overflow-hidden border border-border-dim">
-                            {/* Mock Video Frame */}
-                            <div
-                                className="w-full h-full bg-cover bg-center"
-                                style={{
-                                    backgroundImage: "url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=900&h=500&fit=crop')"
-                                }}
-                            />
+                            {videoSrc ? (
+                                <video
+                                    ref={videoRef}
+                                    src={videoSrc}
+                                    className="w-full h-full object-contain bg-black"
+                                    onEnded={() => setIsPlaying(false)}
+                                />
+                            ) : (
+                                <div
+                                    className="w-full h-full bg-cover bg-center"
+                                    style={{
+                                        backgroundImage: "url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=900&h=500&fit=crop')"
+                                    }}
+                                />
+                            )}
                             {/* Resolution Badge */}
                             <div className="absolute top-3 right-3 text-[10px] text-muted bg-black/60 px-2 py-1 rounded">
-                                4K • 23.976 fps
+                                {uploadedFile ? uploadedFile : '4K • 23.976 fps'}
                             </div>
                             {/* Play Button */}
                             <button
-                                onClick={() => setIsPlaying(!isPlaying)}
+                                onClick={handlePlayPause}
                                 className="absolute inset-0 flex items-center justify-center cursor-pointer"
                             >
-                                <motion.div
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    className="w-16 h-16 bg-electric-blue rounded-full flex items-center justify-center shadow-lg shadow-electric-blue/30"
-                                >
-                                    {isPlaying ? <Pause className="w-6 h-6 text-white" /> : <Play className="w-6 h-6 text-white ml-1" />}
-                                </motion.div>
+                                {!isPlaying && (
+                                    <motion.div
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        className="w-16 h-16 bg-electric-blue rounded-full flex items-center justify-center shadow-lg shadow-electric-blue/30"
+                                    >
+                                        <Play className="w-6 h-6 text-white ml-1" />
+                                    </motion.div>
+                                )}
                             </button>
+
+                            {/* Edited badge */}
+                            {editedVideoUrl && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="absolute top-3 left-3 text-[10px] text-white bg-success/80 px-2 py-1 rounded flex items-center gap-1"
+                                >
+                                    <Sparkles className="w-3 h-3" /> AI Enhanced
+                                </motion.div>
+                            )}
                         </div>
                     </div>
 
@@ -152,14 +275,27 @@ export default function EditorPage() {
 
             {/* AI Command Bar */}
             <div className="flex items-center gap-2 px-4 py-2 bg-surface border-t border-border-dim">
-                <Button variant="primary" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />}>
-                    AI COMMAND
+                <Button
+                    variant="primary"
+                    size="sm"
+                    icon={isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    onClick={handleGenerateEdit}
+                    disabled={isGenerating || !uploadedFile || !aiQuery.trim()}
+                >
+                    {isGenerating ? 'GENERATING...' : 'GENERATE EDIT'}
                 </Button>
                 <div className="flex-1 relative">
                     <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
                     <input
-                        placeholder="Edit timeline with AI... (e.g. 'Cut silences' or 'Apply cinematic grade to all clips')"
-                        className="w-full bg-deep-slate border border-border-dim rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-muted focus:outline-none focus:border-electric-blue"
+                        value={aiQuery}
+                        onChange={(e) => setAiQuery(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={uploadedFile
+                            ? "Describe your edit... (e.g. 'Apply cinematic color grade' or 'Cut silences')"
+                            : "Upload a video first from the Dashboard to start editing..."
+                        }
+                        disabled={isGenerating}
+                        className="w-full bg-deep-slate border border-border-dim rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-muted focus:outline-none focus:border-electric-blue disabled:opacity-50"
                     />
                 </div>
                 <div className="flex items-center gap-2 ml-2">
@@ -175,6 +311,50 @@ export default function EditorPage() {
                     </button>
                 </div>
             </div>
+
+            {/* AI Generation Progress Bar */}
+            <AnimatePresence>
+                {isGenerating && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="bg-deep-slate border-t border-border-dim px-4 py-3"
+                    >
+                        <div className="flex items-center gap-3">
+                            <Sparkles className="w-4 h-4 text-electric-blue animate-pulse" />
+                            <div className="flex-1">
+                                <div className="flex justify-between mb-1">
+                                    <span className="text-xs text-white">AI processing: &quot;{aiQuery}&quot;</span>
+                                    <span className="text-xs text-electric-blue font-bold">{Math.round(generationProgress)}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-soft-gray rounded-full overflow-hidden">
+                                    <motion.div
+                                        className="h-full bg-electric-blue rounded-full"
+                                        animate={{ width: `${generationProgress}%` }}
+                                        transition={{ duration: 0.3 }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Success Banner */}
+            <AnimatePresence>
+                {showSuccess && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="bg-success/10 border-t border-success/20 px-4 py-2 flex items-center gap-2"
+                    >
+                        <CheckCircle className="w-4 h-4 text-success" />
+                        <span className="text-sm text-success">AI edit complete! Your enhanced video is now playing in the preview.</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Timeline */}
             <div className="bg-surface border-t border-border-dim">

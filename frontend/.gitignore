@@ -1,3 +1,9 @@
 node_modules/
 .next/
 *.tsbuildinfo
+
+# Server uploads (user video files — don't commit to git)
+server/uploads/
+server/edited/
+__pycache__/
+*.pyc

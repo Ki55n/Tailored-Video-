@@ -1,11 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Search, Plus, Bell, Cloud, Globe, ChevronRight } from 'lucide-react';
+import { Upload, Search, Plus, Bell, Cloud, Globe, ChevronRight, CheckCircle, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import Button from '@/components/atoms/Button';
 import ProjectCard from '@/components/molecules/ProjectCard';
 import StatusCard from '@/components/molecules/StatusCard';
+
+const API_BASE = 'http://localhost:8000';
 
 const projects = [
     {
@@ -39,6 +42,51 @@ const projects = [
 ];
 
 export default function DashboardPage() {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+    const [dragOver, setDragOver] = useState(false);
+    const router = useRouter();
+
+    const handleUpload = async (file: File) => {
+        setUploading(true);
+        setUploadedFile(null);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch(`${API_BASE}/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                setUploadedFile(data.filename);
+                // Navigate to editor with the uploaded filename
+                setTimeout(() => {
+                    router.push(`/editor?file=${encodeURIComponent(data.filename)}`);
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('Upload failed:', err);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) handleUpload(file);
+    };
+
+    const onDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) handleUpload(file);
+    };
+
     return (
         <div className="max-w-6xl mx-auto space-y-8">
             {/* Header */}
@@ -69,18 +117,49 @@ export default function DashboardPage() {
             {/* Upload Zone */}
             <motion.div
                 whileHover={{ borderColor: 'rgba(0,122,255,0.5)' }}
-                className="border border-border-dim border-dashed rounded-[var(--radius)] bg-deep-slate/50 p-12 flex flex-col items-center gap-4"
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+                className={`
+                    border border-dashed rounded-[var(--radius)] bg-deep-slate/50 p-12 flex flex-col items-center gap-4 transition-colors cursor-pointer
+                    ${dragOver ? 'border-electric-blue bg-electric-blue/5' : 'border-border-dim'}
+                `}
+                onClick={() => fileInputRef.current?.click()}
             >
-                <div className="w-14 h-14 bg-electric-blue/15 rounded-2xl flex items-center justify-center">
-                    <Upload className="w-7 h-7 text-electric-blue" />
-                </div>
-                <h2 className="text-lg font-semibold text-white">Upload Clips</h2>
-                <p className="text-sm text-muted text-center max-w-sm">
-                    Drag and drop your media files here to start a new professional edit. Supports 4K, ProRes, and HDR formats.
-                </p>
-                <Button variant="secondary" size="md">
-                    BROWSE FILES
-                </Button>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={onFileChange}
+                />
+
+                {uploading ? (
+                    <>
+                        <Loader2 className="w-10 h-10 text-electric-blue animate-spin" />
+                        <h2 className="text-lg font-semibold text-white">Uploading...</h2>
+                        <p className="text-sm text-muted">Your video is being processed by the server.</p>
+                    </>
+                ) : uploadedFile ? (
+                    <>
+                        <CheckCircle className="w-10 h-10 text-success" />
+                        <h2 className="text-lg font-semibold text-white">Upload Complete!</h2>
+                        <p className="text-sm text-muted">Redirecting to editor with <strong className="text-white">{uploadedFile}</strong>...</p>
+                    </>
+                ) : (
+                    <>
+                        <div className="w-14 h-14 bg-electric-blue/15 rounded-2xl flex items-center justify-center">
+                            <Upload className="w-7 h-7 text-electric-blue" />
+                        </div>
+                        <h2 className="text-lg font-semibold text-white">Upload Clips</h2>
+                        <p className="text-sm text-muted text-center max-w-sm">
+                            Drag and drop your media files here to start a new professional edit. Supports 4K, ProRes, and HDR formats.
+                        </p>
+                        <Button variant="secondary" size="md">
+                            BROWSE FILES
+                        </Button>
+                    </>
+                )}
             </motion.div>
 
             {/* Recent Projects */}

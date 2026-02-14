@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --color-void-black: #050505;
+  --color-deep-slate: #1A1A1A;
+  --color-soft-gray: #2A2A2A;
+  --color-border-dim: #333333;
+  --color-electric-blue: #007AFF;
+  --color-electric-blue-hover: #0066DD;
+  --color-muted: #888888;
+  --color-muted-light: #AAAAAA;
+  --color-surface: #111111;
+  --color-surface-elevated: #1E1E1E;
+  --color-badge-video: #007AFF;
+  --color-badge-audio: #F5A623;
+  --color-badge-image: #34C759;
+  --color-danger: #FF3B30;
+  --color-warning: #FF9500;
+  --color-success: #34C759;
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+:root {
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--color-void-black);
+  color: #E5E5E5;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-void-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-soft-gray);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Glassmorphism */
+.glass-panel {
+  background: rgba(26, 26, 26, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+}
+
+/* Skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-deep-slate) 25%, var(--color-soft-gray) 50%, var(--color-deep-slate) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Video.js overrides */
+.video-js {
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.video-js .vjs-big-play-button {
+  background: var(--color-electric-blue) !important;
+  border: none !important;
+  border-radius: 50% !important;
+  width: 64px !important;
+  height: 64px !important;
+  line-height: 64px !important;
+  margin-top: -32px !important;
+  margin-left: -32px !important;
+}
+
+/* Selection */
+::selection {
+  background: var(--color-electric-blue);
+  color: white;
+}

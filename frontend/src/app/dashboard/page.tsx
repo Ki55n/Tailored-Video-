@@ -8,7 +8,7 @@ import Button from '@/components/atoms/Button';
 import ProjectCard from '@/components/molecules/ProjectCard';
 import StatusCard from '@/components/molecules/StatusCard';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/server';
 
 const projects = [
     {
@@ -121,10 +121,9 @@ export default function DashboardPage() {
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
                 className={`
-                    border border-dashed rounded-[var(--radius)] bg-deep-slate/50 p-12 flex flex-col items-center gap-4 transition-colors cursor-pointer
+                    border border-dashed rounded-[var(--radius)] bg-deep-slate/50 p-12 flex flex-col items-center gap-4 transition-colors
                     ${dragOver ? 'border-electric-blue bg-electric-blue/5' : 'border-border-dim'}
                 `}
-                onClick={() => fileInputRef.current?.click()}
             >
                 <input
                     ref={fileInputRef}
@@ -155,7 +154,7 @@ export default function DashboardPage() {
                         <p className="text-sm text-muted text-center max-w-sm">
                             Drag and drop your media files here to start a new professional edit. Supports 4K, ProRes, and HDR formats.
                         </p>
-                        <Button variant="secondary" size="md">
+                        <Button variant="secondary" size="md" onClick={() => fileInputRef.current?.click()}>
                             BROWSE FILES
                         </Button>
                     </>

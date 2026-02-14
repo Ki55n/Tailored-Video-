@@ -36,6 +36,7 @@ export default function Button({
     children,
     className = '',
     disabled,
+    onClick,
     ...props
 }: ButtonProps) {
     return (
@@ -51,6 +52,7 @@ export default function Button({
         ${className}
       `}
             disabled={disabled || loading}
+            onClick={onClick}
             {...(props as React.ComponentPropsWithoutRef<typeof motion.button>)}
         >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}

@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Play, Pause, Volume2, Maximize2, Undo2, Redo2,
     Share2, Scissors, Copy, Magnet, ChevronDown,
-    Sparkles, Eye, Trash2, Search, Loader2, CheckCircle, Download
+    Sparkles, Eye, Trash2, Search, Loader2, CheckCircle, Download,
+    MessageSquare, AlertCircle
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import Button from '@/components/atoms/Button';
@@ -13,7 +14,15 @@ import Toggle from '@/components/atoms/Toggle';
 import Slider from '@/components/atoms/Slider';
 import { useTimelineStore } from '@/stores/useTimelineStore';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/server';
+
+interface ChatEntry {
+    type: 'user' | 'ai' | 'error';
+    message: string;
+    filename?: string;
+    url?: string;
+    timestamp: string;
+}
 
 export default function EditorPage() {
     return (
@@ -35,6 +44,7 @@ function EditorContent() {
 
     const searchParams = useSearchParams();
     const uploadedFile = searchParams.get('file') || '';
+    const originalStem = uploadedFile ? uploadedFile.replace(/\.[^.]+$/, '') : '';
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [opacity, setOpacity] = useState(85);
@@ -47,18 +57,22 @@ function EditorContent() {
     const [aiQuery, setAiQuery] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [generationProgress, setGenerationProgress] = useState(0);
-    const [editedVideoUrl, setEditedVideoUrl] = useState<string | null>(null);
-    const [showSuccess, setShowSuccess] = useState(false);
+
+    // Chained editing: track current filename (starts as uploaded, changes after each edit)
+    const [currentFilename, setCurrentFilename] = useState(uploadedFile);
+    const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
+    const [showChat, setShowChat] = useState(false);
 
     // Video refs
     const videoRef = useRef<HTMLVideoElement>(null);
+    const chatEndRef = useRef<HTMLDivElement>(null);
 
-    // Video source — either the uploaded original or the edited version
-    const videoSrc = editedVideoUrl
-        ? editedVideoUrl
-        : uploadedFile
-            ? `${API_BASE}/uploads/${encodeURIComponent(uploadedFile)}`
-            : '';
+    // Video source — always point to the latest file
+    const videoSrc = currentFilename
+        ? (currentFilename === uploadedFile
+            ? `${API_BASE}/uploads/${encodeURIComponent(currentFilename)}`
+            : `${API_BASE}/edited/${encodeURIComponent(currentFilename)}`)
+        : '';
 
     const handlePlayPause = () => {
         if (!videoRef.current) return;
@@ -70,49 +84,84 @@ function EditorContent() {
         setIsPlaying(!isPlaying);
     };
 
-    const handleGenerateEdit = async () => {
-        if (!uploadedFile || !aiQuery.trim()) return;
+    const getTimestamp = () => {
+        return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    };
 
+    const handleGenerateEdit = async () => {
+        if (!currentFilename || !aiQuery.trim()) return;
+
+        const userMessage = aiQuery.trim();
+        setAiQuery('');
         setIsGenerating(true);
         setGenerationProgress(0);
-        setShowSuccess(false);
-        setEditedVideoUrl(null);
+        setShowChat(true);
+
+        // Add user message to chat
+        setChatHistory(prev => [...prev, {
+            type: 'user',
+            message: userMessage,
+            timestamp: getTimestamp(),
+        }]);
 
         // Simulate progress while waiting for API
         const progressInterval = setInterval(() => {
             setGenerationProgress((prev) => {
                 if (prev >= 90) return 90;
-                return prev + Math.random() * 15;
+                return prev + Math.random() * 12;
             });
         }, 300);
 
         try {
             const formData = new FormData();
-            formData.append('filename', uploadedFile);
-            formData.append('query', aiQuery);
+            formData.append('filename', currentFilename);
+            formData.append('query', userMessage);
 
             const res = await fetch(`${API_BASE}/generate-edit`, {
                 method: 'POST',
                 body: formData,
             });
-            const data = await res.json();
 
             clearInterval(progressInterval);
             setGenerationProgress(100);
 
-            if (data.status === 'success') {
-                // Set the edited video URL
-                setEditedVideoUrl(`${API_BASE}${data.download_url}`);
-                setShowSuccess(true);
+            if (!res.ok) {
+                const errData = await res.json();
+                setChatHistory(prev => [...prev, {
+                    type: 'error',
+                    message: errData.detail || 'Processing failed',
+                    timestamp: getTimestamp(),
+                }]);
+            } else {
+                const data = await res.json();
+                // Update current filename to the new output (for chaining)
+                setCurrentFilename(data.output_filename);
 
-                // Reset success state after a few seconds
-                setTimeout(() => setShowSuccess(false), 5000);
+                setChatHistory(prev => [...prev, {
+                    type: 'ai',
+                    message: `${data.description} → **${data.output_filename}** (${data.size_mb} MB)`,
+                    filename: data.output_filename,
+                    url: `${API_BASE}${data.download_url}`,
+                    timestamp: getTimestamp(),
+                }]);
+
+                // Reload video with new source
+                if (videoRef.current) {
+                    videoRef.current.load();
+                }
             }
         } catch (err) {
-            console.error('Generate edit failed:', err);
             clearInterval(progressInterval);
+            setChatHistory(prev => [...prev, {
+                type: 'error',
+                message: 'Failed to connect to the server. Is it running?',
+                timestamp: getTimestamp(),
+            }]);
         } finally {
             setIsGenerating(false);
+            setGenerationProgress(0);
+            // Scroll chat to bottom
+            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         }
     };
 
@@ -162,8 +211,8 @@ function EditorContent() {
                     <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Undo2 className="w-4 h-4" /></button>
                     <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Redo2 className="w-4 h-4" /></button>
                     <Button variant="secondary" size="sm" icon={<Share2 className="w-3.5 h-3.5" />}>Share</Button>
-                    {editedVideoUrl && (
-                        <a href={editedVideoUrl} download className="inline-flex">
+                    {currentFilename !== uploadedFile && (
+                        <a href={`${API_BASE}/edited/${encodeURIComponent(currentFilename)}`} download className="inline-flex">
                             <Button size="sm" icon={<Download className="w-3.5 h-3.5" />}>DOWNLOAD</Button>
                         </a>
                     )}
@@ -186,35 +235,33 @@ function EditorContent() {
                                     onEnded={() => setIsPlaying(false)}
                                 />
                             ) : (
-                                <div
-                                    className="w-full h-full bg-cover bg-center"
-                                    style={{
-                                        backgroundImage: "url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=900&h=500&fit=crop')"
-                                    }}
-                                />
+                                <div className="w-full h-full flex items-center justify-center">
+                                    <p className="text-muted text-sm">Upload a video from the Dashboard to start editing</p>
+                                </div>
                             )}
-                            {/* Resolution Badge */}
+                            {/* Filename Badge */}
                             <div className="absolute top-3 right-3 text-[10px] text-muted bg-black/60 px-2 py-1 rounded">
-                                {uploadedFile ? uploadedFile : '4K • 23.976 fps'}
+                                {currentFilename || 'No file'}
                             </div>
                             {/* Play Button */}
-                            <button
-                                onClick={handlePlayPause}
-                                className="absolute inset-0 flex items-center justify-center cursor-pointer"
-                            >
-                                {!isPlaying && (
-                                    <motion.div
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        className="w-16 h-16 bg-electric-blue rounded-full flex items-center justify-center shadow-lg shadow-electric-blue/30"
-                                    >
-                                        <Play className="w-6 h-6 text-white ml-1" />
-                                    </motion.div>
-                                )}
-                            </button>
-
+                            {videoSrc && (
+                                <button
+                                    onClick={handlePlayPause}
+                                    className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                                >
+                                    {!isPlaying && (
+                                        <motion.div
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            className="w-16 h-16 bg-electric-blue rounded-full flex items-center justify-center shadow-lg shadow-electric-blue/30"
+                                        >
+                                            <Play className="w-6 h-6 text-white ml-1" />
+                                        </motion.div>
+                                    )}
+                                </button>
+                            )}
                             {/* Edited badge */}
-                            {editedVideoUrl && (
+                            {currentFilename && currentFilename !== uploadedFile && (
                                 <motion.div
                                     initial={{ opacity: 0, y: -10 }}
                                     animate={{ opacity: 1, y: 0 }}
@@ -237,39 +284,102 @@ function EditorContent() {
                     </div>
                 </div>
 
-                {/* Properties Panel */}
-                <aside className="w-72 bg-surface border-l border-border-dim overflow-y-auto">
-                    <div className="p-4 border-b border-border-dim">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-muted uppercase tracking-wider">Properties</h3>
-                            <button className="text-muted hover:text-white cursor-pointer">⋮</button>
-                        </div>
+                {/* Properties + Chat Panel */}
+                <aside className="w-80 bg-surface border-l border-border-dim overflow-y-auto flex flex-col">
+                    {/* Panel Toggle */}
+                    <div className="flex border-b border-border-dim">
+                        <button
+                            onClick={() => setShowChat(false)}
+                            className={`flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-colors ${!showChat ? 'text-white border-b-2 border-electric-blue' : 'text-muted hover:text-white'}`}
+                        >
+                            Properties
+                        </button>
+                        <button
+                            onClick={() => setShowChat(true)}
+                            className={`flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-colors flex items-center justify-center gap-1.5 ${showChat ? 'text-white border-b-2 border-electric-blue' : 'text-muted hover:text-white'}`}
+                        >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            AI Chat
+                            {chatHistory.length > 0 && (
+                                <span className="bg-electric-blue text-white text-[9px] px-1.5 py-0.5 rounded-full">{chatHistory.length}</span>
+                            )}
+                        </button>
                     </div>
 
-                    {/* Transform */}
-                    <div className="p-4 border-b border-border-dim">
-                        <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-sm font-semibold text-white">Transform</h4>
-                            <ChevronDown className="w-4 h-4 text-muted" />
-                        </div>
-                        <div className="space-y-5">
-                            <Slider label="OPACITY" value={opacity} onChange={setOpacity} displayValue={`${opacity}%`} />
-                            <Slider label="SCALE" value={scale} onChange={setScale} displayValue={`${scale}%`} />
-                        </div>
-                    </div>
+                    {!showChat ? (
+                        /* Properties Panel */
+                        <div className="flex-1">
+                            {/* Transform */}
+                            <div className="p-4 border-b border-border-dim">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className="text-sm font-semibold text-white">Transform</h4>
+                                    <ChevronDown className="w-4 h-4 text-muted" />
+                                </div>
+                                <div className="space-y-5">
+                                    <Slider label="OPACITY" value={opacity} onChange={setOpacity} displayValue={`${opacity}%`} />
+                                    <Slider label="SCALE" value={scale} onChange={setScale} displayValue={`${scale}%`} />
+                                </div>
+                            </div>
 
-                    {/* AI Enhancements */}
-                    <div className="p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Sparkles className="w-4 h-4 text-electric-blue" />
-                            <h4 className="text-sm font-semibold text-white">AI Enhancements</h4>
+                            {/* AI Enhancements */}
+                            <div className="p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Sparkles className="w-4 h-4 text-electric-blue" />
+                                    <h4 className="text-sm font-semibold text-white">AI Enhancements</h4>
+                                </div>
+                                <div className="space-y-1">
+                                    <Toggle label="Background Removal" enabled={bgRemoval} onChange={setBgRemoval} />
+                                    <Toggle label="Smart Upscaling" enabled={smartUpscale} onChange={setSmartUpscale} />
+                                    <Toggle label="Eye Contact Fix" enabled={eyeContact} onChange={setEyeContact} />
+                                </div>
+                            </div>
                         </div>
-                        <div className="space-y-1">
-                            <Toggle label="Background Removal" enabled={bgRemoval} onChange={setBgRemoval} />
-                            <Toggle label="Smart Upscaling" enabled={smartUpscale} onChange={setSmartUpscale} />
-                            <Toggle label="Eye Contact Fix" enabled={eyeContact} onChange={setEyeContact} />
+                    ) : (
+                        /* Chat History Panel */
+                        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                            {chatHistory.length === 0 && (
+                                <div className="flex flex-col items-center justify-center h-full text-center">
+                                    <Sparkles className="w-8 h-8 text-electric-blue/30 mb-3" />
+                                    <p className="text-sm text-muted">Type a command below to start editing</p>
+                                    <p className="text-[10px] text-muted/60 mt-1">e.g. &quot;trim the video&quot; or &quot;apply B&amp;W filter&quot;</p>
+                                </div>
+                            )}
+
+                            {chatHistory.map((entry, i) => (
+                                <motion.div
+                                    key={i}
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className={`rounded-lg p-3 text-xs ${entry.type === 'user'
+                                            ? 'bg-electric-blue/10 border border-electric-blue/20 ml-6'
+                                            : entry.type === 'error'
+                                                ? 'bg-danger/10 border border-danger/20 mr-6'
+                                                : 'bg-soft-gray border border-border-dim mr-6'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        {entry.type === 'user' && <span className="text-electric-blue font-bold">You</span>}
+                                        {entry.type === 'ai' && <><Sparkles className="w-3 h-3 text-electric-blue" /><span className="text-electric-blue font-bold">Gemini 3</span></>}
+                                        {entry.type === 'error' && <><AlertCircle className="w-3 h-3 text-danger" /><span className="text-danger font-bold">Error</span></>}
+                                        <span className="text-muted/50 ml-auto">{entry.timestamp}</span>
+                                    </div>
+                                    <p className="text-white/80 leading-relaxed" dangerouslySetInnerHTML={{
+                                        __html: entry.message.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
+                                    }} />
+                                    {entry.url && (
+                                        <a
+                                            href={entry.url}
+                                            download
+                                            className="inline-flex items-center gap-1 mt-2 text-electric-blue hover:underline text-[10px]"
+                                        >
+                                            <Download className="w-3 h-3" /> Download {entry.filename}
+                                        </a>
+                                    )}
+                                </motion.div>
+                            ))}
+                            <div ref={chatEndRef} />
                         </div>
-                    </div>
+                    )}
                 </aside>
             </div>
 
@@ -280,9 +390,9 @@ function EditorContent() {
                     size="sm"
                     icon={isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                     onClick={handleGenerateEdit}
-                    disabled={isGenerating || !uploadedFile || !aiQuery.trim()}
+                    disabled={isGenerating || !currentFilename || !aiQuery.trim()}
                 >
-                    {isGenerating ? 'GENERATING...' : 'GENERATE EDIT'}
+                    {isGenerating ? 'PROCESSING...' : 'GENERATE EDIT'}
                 </Button>
                 <div className="flex-1 relative">
                     <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
@@ -291,8 +401,8 @@ function EditorContent() {
                         onChange={(e) => setAiQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder={uploadedFile
-                            ? "Describe your edit... (e.g. 'Apply cinematic color grade' or 'Cut silences')"
-                            : "Upload a video first from the Dashboard to start editing..."
+                            ? "Type: trim, b&w, speed up, slow down, reverse, blur, rotate..."
+                            : "Upload a video first from the Dashboard..."
                         }
                         disabled={isGenerating}
                         className="w-full bg-deep-slate border border-border-dim rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-muted focus:outline-none focus:border-electric-blue disabled:opacity-50"
@@ -325,7 +435,7 @@ function EditorContent() {
                             <Sparkles className="w-4 h-4 text-electric-blue animate-pulse" />
                             <div className="flex-1">
                                 <div className="flex justify-between mb-1">
-                                    <span className="text-xs text-white">AI processing: &quot;{aiQuery}&quot;</span>
+                                    <span className="text-xs text-white">Processing with ffmpeg...</span>
                                     <span className="text-xs text-electric-blue font-bold">{Math.round(generationProgress)}%</span>
                                 </div>
                                 <div className="w-full h-1.5 bg-soft-gray rounded-full overflow-hidden">
@@ -337,21 +447,6 @@ function EditorContent() {
                                 </div>
                             </div>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Success Banner */}
-            <AnimatePresence>
-                {showSuccess && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="bg-success/10 border-t border-success/20 px-4 py-2 flex items-center gap-2"
-                    >
-                        <CheckCircle className="w-4 h-4 text-success" />
-                        <span className="text-sm text-success">AI edit complete! Your enhanced video is now playing in the preview.</span>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -431,7 +526,6 @@ function EditorContent() {
                                     )}
                                 </motion.div>
                             ))}
-                            {/* Playhead line on video track */}
                             <div
                                 className="absolute top-0 w-[2px] h-full bg-danger z-10"
                                 style={{ left: `${playheadLeft}%` }}

@@ -196,7 +196,9 @@ function EditorContent() {
                             <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-muted hover:text-white"><Redo2 className="w-4 h-4" /></button>
                         </div>
                         <Button variant="secondary" size="sm" icon={<Share2 className="w-3.5 h-3.5" />}>Share</Button>
-                        <Button size="sm">Export 4K</Button>
+                        <a href={videoSrc} download="video_final.mp4" className={!currentFilename ? 'pointer-events-none opacity-50' : ''}>
+                            <Button size="sm" icon={<Download className="w-3.5 h-3.5" />}>Export 4K</Button>
+                        </a>
                     </div>
                 </header>
 

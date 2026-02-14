@@ -1,0 +1,19 @@
+nohup: ignoring input
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.255.255.254:3000
+
+✓ Starting...
+✓ Ready in 1540ms
+ GET /dashboard 200 in 1048ms (compile: 561ms, render: 488ms)
+(node:70837) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /editor?file=video.mp4 200 in 585ms (compile: 532ms, render: 53ms)
+ GET /editor?file=video.mp4 200 in 173ms (compile: 13ms, render: 160ms)
+✓ Compiled in 899ms
+ GET /editor?file=video.mp4 200 in 403ms (compile: 97ms, render: 306ms)
+ GET /dashboard 200 in 48ms (compile: 16ms, render: 32ms)

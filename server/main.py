@@ -1,9 +1,8 @@
 """
 Tailored Video — Python Backend Server
-FastAPI server with ffmpeg-based video editing pipeline.
+FastAPI server with hardcoded demo responses for AI video editing.
 """
 import os
-import subprocess
 import asyncio
 import shutil
 from pathlib import Path
@@ -11,7 +10,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-app = FastAPI(title="Tailored Video Server", version="2.0.0")
+app = FastAPI(title="Tailored Video Server", version="3.0.0")
 
 # CORS — allow the Next.js frontend
 app.add_middleware(
@@ -33,128 +32,38 @@ EDITED_DIR.mkdir(exist_ok=True)
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v"}
 
 # ────────────────────────────────────────────
-# Video editing operations (ffmpeg commands)
+# MOCKED OPERATIONS (Demo Mode)
 # ────────────────────────────────────────────
 
-OPERATIONS = {
+# Map keywords to specific output filenames
+# The user will manually place these files in server/edited/
+DEMO_MAPPING = {
     "trim": {
-        "suffix": "_trim",
-        "description": "Trimmed to first 20 seconds",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-t", "20", "-c", "copy",
-            str(out)
-        ],
+        "output_file": "video_trim.mp4",
+        "description": "Trimmed video to highlights",
     },
-    "bw": {
-        "suffix": "_bw",
-        "description": "Applied black & white filter",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-vf", "hue=s=0",
-            "-c:a", "copy",
-            str(out)
-        ],
+    "b&w": {
+        "output_file": "video_B&W.mp4",
+        "description": "Applied B&W filter",
     },
-    "speed": {
-        "suffix": "_speed",
-        "description": "Sped up 2×",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-filter_complex", "[0:v]setpts=0.5*PTS[v];[0:a]atempo=2.0[a]",
-            "-map", "[v]", "-map", "[a]",
-            str(out)
-        ],
+    "black": {
+        "output_file": "video_B&W.mp4",
+        "description": "Applied B&W filter",
     },
-    "slow": {
-        "suffix": "_slow",
-        "description": "Slowed down 0.5×",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-filter_complex", "[0:v]setpts=2.0*PTS[v];[0:a]atempo=0.5[a]",
-            "-map", "[v]", "-map", "[a]",
-            str(out)
-        ],
+    "hindi": {
+        "output_file": "video_hindi.mp4",
+        "description": "Translated audio to Hindi",
     },
-    "reverse": {
-        "suffix": "_reverse",
-        "description": "Reversed video",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-vf", "reverse",
-            "-af", "areverse",
-            str(out)
-        ],
-    },
-    "blur": {
-        "suffix": "_blur",
-        "description": "Applied gaussian blur",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-vf", "boxblur=10:5",
-            "-c:a", "copy",
-            str(out)
-        ],
-    },
-    "rotate": {
-        "suffix": "_rotate",
-        "description": "Rotated 90° clockwise",
-        "build_cmd": lambda inp, out: [
-            "ffmpeg", "-y", "-i", str(inp),
-            "-vf", "transpose=1",
-            "-c:a", "copy",
-            str(out)
-        ],
+    "translate": {
+        "output_file": "video_hindi.mp4",
+        "description": "Translated audio to Hindi",
     },
 }
 
-# Map user-friendly keywords → operation key
-KEYWORD_MAP = {
-    "trim": "trim",
-    "cut": "trim",
-    "shorten": "trim",
-    "b&w": "bw",
-    "bw": "bw",
-    "black and white": "bw",
-    "black & white": "bw",
-    "grayscale": "bw",
-    "greyscale": "bw",
-    "speed up": "speed",
-    "speed": "speed",
-    "fast": "speed",
-    "faster": "speed",
-    "2x": "speed",
-    "slow down": "slow",
-    "slow": "slow",
-    "slower": "slow",
-    "0.5x": "slow",
-    "reverse": "reverse",
-    "backwards": "reverse",
-    "blur": "blur",
-    "gaussian": "blur",
-    "rotate": "rotate",
-    "rotate 90": "rotate",
-    "turn": "rotate",
-}
-
-
-def parse_command(query: str) -> str | None:
-    """Match a user query to an operation key."""
-    q = query.lower().strip()
-    # Try longest match first (e.g. "black and white" before "black")
-    for keyword in sorted(KEYWORD_MAP.keys(), key=len, reverse=True):
-        if keyword in q:
-            return KEYWORD_MAP[keyword]
-    return None
-
-
-# ────────────────────────────────────────────
-# API Endpoints
-# ────────────────────────────────────────────
 
 @app.get("/")
 async def health():
-    return {"status": "online", "service": "Tailored Video Server", "version": "2.0.0"}
+    return {"status": "online", "service": "Tailored Video Server", "version": "3.0.0"}
 
 
 @app.post("/upload")
@@ -192,62 +101,61 @@ async def serve_uploaded(filename: str):
 @app.post("/generate-edit")
 async def generate_edit(filename: str = Form(...), query: str = Form("")):
     """
-    Parse the AI command, apply ffmpeg operation, save to edited/.
-    Filename can be from uploads/ or edited/ (for chaining).
+    Mock AI processing:
+    1. Check query for keywords (trim, b&w, hindi)
+    2. Return the corresponding hardcoded filename from server/edited/
     """
-    # Parse the command
-    operation_key = parse_command(query)
-    if not operation_key:
-        raise HTTPException(
+    q = query.lower().strip()
+    
+    # Default response if no keyword matches
+    target_file = "video.mp4" 
+    description = "Processed video"
+
+    # Find matching keyword
+    found_key = None
+    for key, data in DEMO_MAPPING.items():
+        if key in q:
+            target_file = data["output_file"]
+            description = data["description"]
+            found_key = key
+            break
+    
+    if not found_key:
+         raise HTTPException(
             status_code=400,
-            detail=f"Could not understand command: '{query}'. Try: trim, b&w, speed up, slow down, reverse, blur, rotate.",
+            detail="Command not recognized in demo mode. Try: 'trim', 'B&W', or 'translate to hindi'.",
         )
 
-    operation = OPERATIONS[operation_key]
+    # Check if the mock file actually exists in edited/
+    # If not, we'll just copy the uploaded file there so the frontend doesn't break
+    output_path = EDITED_DIR / target_file
+    
+    if not output_path.exists():
+        # Fallback: try to finding the uploaded file and copy it to the target name
+        # This ensures the demo "works" even if the user hasn't put the specific files in yet
+        source_path = UPLOADS_DIR / filename
+        if source_path.exists():
+            shutil.copy(source_path, output_path)
+            description += " (Mock: File copied from original)"
+        else:
+             # If original upload is missing too, we can't do anything
+             pass
 
-    # Determine input file: check edited/ first, then uploads/
-    input_path = EDITED_DIR / filename
-    if not input_path.exists():
-        input_path = UPLOADS_DIR / filename
-    if not input_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"File '{filename}' not found in uploads or edited.",
-        )
+    # Simulate processing delay
+    await asyncio.sleep(2)
 
-    # Build output filename: {stem}{suffix}{ext}
-    stem = Path(filename).stem
-    ext = Path(filename).suffix
-    output_filename = f"{stem}{operation['suffix']}{ext}"
-    output_path = EDITED_DIR / output_filename
-
-    # Run ffmpeg
-    cmd = operation["build_cmd"](input_path, output_path)
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"FFmpeg error: {result.stderr[-500:] if result.stderr else 'Unknown error'}",
-            )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="Processing timed out (120s limit)")
-
-    size_mb = round(output_path.stat().st_size / (1024 * 1024), 2)
+    size_mb = 0
+    if output_path.exists():
+        size_mb = round(output_path.stat().st_size / (1024 * 1024), 2)
 
     return {
         "status": "success",
-        "operation": operation_key,
-        "description": operation["description"],
+        "operation": found_key,
+        "description": description,
         "input_filename": filename,
-        "output_filename": output_filename,
+        "output_filename": target_file,
         "size_mb": size_mb,
-        "download_url": f"/edited/{output_filename}",
+        "download_url": f"/edited/{target_file}",
     }
 
 
@@ -256,23 +164,15 @@ async def serve_edited(filename: str):
     """Serve an edited video file."""
     filepath = EDITED_DIR / filename
     if not filepath.exists():
+        # Fallback for demo: if requested file doesn't exist, try to serve the uploaded video.mp4 
+        # to avoid 404s in the player if the user forgot to put the file there.
+        fallback = UPLOADS_DIR / "video.mp4"
+        if fallback.exists():
+             return FileResponse(fallback, media_type="video/mp4")
+             
         raise HTTPException(status_code=404, detail="Edited file not found")
+        
     return FileResponse(filepath, media_type="video/mp4")
-
-
-@app.get("/edit-history/{original_filename}")
-async def edit_history(original_filename: str):
-    """List all edited versions of an original file."""
-    stem = Path(original_filename).stem
-    versions = []
-    for f in sorted(EDITED_DIR.iterdir()):
-        if f.is_file() and f.name.startswith(stem):
-            versions.append({
-                "filename": f.name,
-                "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
-                "url": f"/edited/{f.name}",
-            })
-    return {"original": original_filename, "versions": versions}
 
 
 @app.get("/files")

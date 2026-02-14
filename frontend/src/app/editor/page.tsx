@@ -1,17 +1,14 @@
 'use client';
 
-import React, { useState, useRef, Suspense } from 'react';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Play, Pause, Volume2, Maximize2, Undo2, Redo2,
-    Share2, Scissors, Copy, Magnet, ChevronDown,
-    Sparkles, Eye, Trash2, Search, Loader2, CheckCircle, Download,
-    MessageSquare, AlertCircle
+    Share2, Scissors, Sparkles, Download, Send,
+    Wand2, ChevronRight, User, Loader2, Bot
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import Button from '@/components/atoms/Button';
-import Toggle from '@/components/atoms/Toggle';
-import Slider from '@/components/atoms/Slider';
 import { useTimelineStore } from '@/stores/useTimelineStore';
 
 const API_BASE = '/server';
@@ -23,6 +20,13 @@ interface ChatEntry {
     url?: string;
     timestamp: string;
 }
+
+const SUGGESTED_ACTIONS = [
+    { label: "✂️ Trim Silence", query: "trim the video to remove silence" },
+    { label: "🎨 Cinematic B&W", query: "apply black and white cinematic filter" },
+    { label: "🗣️ Translate to Hindi", query: "translate audio to hindi" },
+    { label: "⚡ Make Viral", query: "speed up and add captions" },
+];
 
 export default function EditorPage() {
     return (
@@ -37,35 +41,31 @@ export default function EditorPage() {
 }
 
 function EditorContent() {
-    const {
-        segments, playheadPosition, isMagnetEnabled, zoomLevel,
-        toggleMagnet, setZoomLevel, setPlayhead, duration
-    } = useTimelineStore();
-
+    const { duration } = useTimelineStore();
     const searchParams = useSearchParams();
     const uploadedFile = searchParams.get('file') || '';
-    const originalStem = uploadedFile ? uploadedFile.replace(/\.[^.]+$/, '') : '';
 
+    // Video State
     const [isPlaying, setIsPlaying] = useState(false);
-    const [opacity, setOpacity] = useState(85);
-    const [scale, setScale] = useState(100);
-    const [bgRemoval, setBgRemoval] = useState(true);
-    const [smartUpscale, setSmartUpscale] = useState(false);
-    const [eyeContact, setEyeContact] = useState(false);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [currentFilename, setCurrentFilename] = useState(uploadedFile);
 
-    // AI Command Bar state
+    // Chat State
     const [aiQuery, setAiQuery] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
-    const [generationProgress, setGenerationProgress] = useState(0);
-
-    // Chained editing: track current filename (starts as uploaded, changes after each edit)
-    const [currentFilename, setCurrentFilename] = useState(uploadedFile);
-    const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
-    const [showChat, setShowChat] = useState(false);
-
-    // Video refs
-    const videoRef = useRef<HTMLVideoElement>(null);
+    const [chatHistory, setChatHistory] = useState<ChatEntry[]>([
+        {
+            type: 'ai',
+            message: `Hi there! I'm ready to help you edit **${uploadedFile}**. What would you like to do?`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+        }
+    ]);
     const chatEndRef = useRef<HTMLDivElement>(null);
+
+    // Initial scroll to bottom
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory]);
 
     // Video source — always point to the latest file
     const videoSrc = currentFilename
@@ -88,42 +88,29 @@ function EditorContent() {
         return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     };
 
-    const handleGenerateEdit = async () => {
-        if (!currentFilename || !aiQuery.trim()) return;
+    const handleGenerateEdit = async (queryOverride?: string) => {
+        const queryToUse = queryOverride || aiQuery;
+        if (!currentFilename || !queryToUse.trim()) return;
 
-        const userMessage = aiQuery.trim();
         setAiQuery('');
         setIsGenerating(true);
-        setGenerationProgress(0);
-        setShowChat(true);
 
         // Add user message to chat
         setChatHistory(prev => [...prev, {
             type: 'user',
-            message: userMessage,
+            message: queryToUse,
             timestamp: getTimestamp(),
         }]);
-
-        // Simulate progress while waiting for API
-        const progressInterval = setInterval(() => {
-            setGenerationProgress((prev) => {
-                if (prev >= 90) return 90;
-                return prev + Math.random() * 12;
-            });
-        }, 300);
 
         try {
             const formData = new FormData();
             formData.append('filename', currentFilename);
-            formData.append('query', userMessage);
+            formData.append('query', queryToUse);
 
             const res = await fetch(`${API_BASE}/generate-edit`, {
                 method: 'POST',
                 body: formData,
             });
-
-            clearInterval(progressInterval);
-            setGenerationProgress(100);
 
             if (!res.ok) {
                 const errData = await res.json();
@@ -134,455 +121,236 @@ function EditorContent() {
                 }]);
             } else {
                 const data = await res.json();
-                // Update current filename to the new output (for chaining)
                 setCurrentFilename(data.output_filename);
 
                 setChatHistory(prev => [...prev, {
                     type: 'ai',
-                    message: `${data.description} → **${data.output_filename}** (${data.size_mb} MB)`,
+                    message: `Done! ${data.description}`,
                     filename: data.output_filename,
                     url: `${API_BASE}${data.download_url}`,
                     timestamp: getTimestamp(),
                 }]);
 
-                // Reload video with new source
                 if (videoRef.current) {
-                    videoRef.current.load();
+                    // Slight delay to ensure file is ready
+                    setTimeout(() => videoRef.current?.load(), 500);
                 }
             }
         } catch (err) {
-            clearInterval(progressInterval);
             setChatHistory(prev => [...prev, {
                 type: 'error',
-                message: 'Failed to connect to the server. Is it running?',
+                message: 'Failed to connect to the server.',
                 timestamp: getTimestamp(),
             }]);
         } finally {
             setIsGenerating(false);
-            setGenerationProgress(0);
-            // Scroll chat to bottom
-            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !isGenerating) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
             handleGenerateEdit();
         }
     };
 
-    const formatTime = (seconds: number) => {
-        const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-        const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-        const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-        const f = Math.floor((seconds % 1) * 24).toString().padStart(2, '0');
-        return `${h}:${m}:${s}:${f}`;
-    };
-
-    const timeMarkers = Array.from({ length: Math.ceil(duration / 15) + 1 }, (_, i) => {
-        const sec = i * 15;
-        const m = Math.floor(sec / 60).toString().padStart(2, '0');
-        const s = (sec % 60).toString().padStart(2, '0');
-        return { pos: sec, label: `${m}:${s}` };
-    });
-
-    const getSegmentStyle = (seg: typeof segments[0]) => {
-        const left = (seg.start / duration) * 100;
-        const width = ((seg.end - seg.start) / duration) * 100;
-        return { left: `${left}%`, width: `${width}%` };
-    };
-
-    const playheadLeft = (playheadPosition / duration) * 100;
-
     return (
-        <div className="flex flex-col h-screen">
-            {/* Top Bar */}
-            <header className="flex items-center justify-between px-4 py-2 bg-surface border-b border-border-dim">
-                <div className="flex items-center gap-3">
-                    <h1 className="text-sm font-bold tracking-wider text-white">
-                        TAILORED <span className="font-black">VIDEO</span>
-                    </h1>
-                    <span className="text-xs text-muted flex items-center gap-1">
-                        PROJECT: <span className="text-white font-medium">{uploadedFile || 'CINEMATIC_SEQUENCE_01'}</span>
-                        <ChevronDown className="w-3 h-3" />
-                    </span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Undo2 className="w-4 h-4" /></button>
-                    <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Redo2 className="w-4 h-4" /></button>
-                    <Button variant="secondary" size="sm" icon={<Share2 className="w-3.5 h-3.5" />}>Share</Button>
-                    {currentFilename !== uploadedFile && (
-                        <a href={`${API_BASE}/edited/${encodeURIComponent(currentFilename)}`} download className="inline-flex">
-                            <Button size="sm" icon={<Download className="w-3.5 h-3.5" />}>DOWNLOAD</Button>
-                        </a>
-                    )}
-                    <Button size="sm">EXPORT</Button>
-                </div>
-            </header>
+        <div className="flex h-screen bg-void-black overflow-hidden font-sans">
+            {/* LEFT: Video Preview Area (65%) */}
+            <div className="flex-1 flex flex-col relative border-r border-border-dim">
+                {/* Header */}
+                <header className="flex items-center justify-between px-6 py-4 bg-surface border-b border-border-dim z-10">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-electric-blue rounded-lg flex items-center justify-center">
+                            <Play className="w-4 h-4 text-white fill-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-sm font-bold tracking-wider text-white">PROJECT STUDIO</h1>
+                            <p className="text-[10px] text-muted">{currentFilename}</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-deep-slate rounded-lg p-1 border border-border-dim mr-4">
+                            <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-muted hover:text-white"><Undo2 className="w-4 h-4" /></button>
+                            <button className="p-1.5 hover:bg-white/10 rounded transition-colors text-muted hover:text-white"><Redo2 className="w-4 h-4" /></button>
+                        </div>
+                        <Button variant="secondary" size="sm" icon={<Share2 className="w-3.5 h-3.5" />}>Share</Button>
+                        <Button size="sm">Export 4K</Button>
+                    </div>
+                </header>
 
-            {/* Main Content */}
-            <div className="flex flex-1 overflow-hidden">
-                {/* Video Preview Area */}
-                <div className="flex-1 flex flex-col bg-void-black">
-                    {/* Preview */}
-                    <div className="flex-1 relative flex items-center justify-center p-4">
-                        <div className="relative w-full max-w-3xl aspect-video bg-deep-slate rounded-lg overflow-hidden border border-border-dim">
-                            {videoSrc ? (
-                                <video
-                                    ref={videoRef}
-                                    src={videoSrc}
-                                    className="w-full h-full object-contain bg-black"
-                                    onEnded={() => setIsPlaying(false)}
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                    <p className="text-muted text-sm">Upload a video from the Dashboard to start editing</p>
-                                </div>
-                            )}
-                            {/* Filename Badge */}
-                            <div className="absolute top-3 right-3 text-[10px] text-muted bg-black/60 px-2 py-1 rounded">
-                                {currentFilename || 'No file'}
-                            </div>
-                            {/* Play Button */}
-                            {videoSrc && (
-                                <button
-                                    onClick={handlePlayPause}
-                                    className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                {/* Video Player */}
+                <div className="flex-1 flex items-center justify-center bg-black/50 p-8">
+                    <div className="relative w-full max-w-4xl aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-white/5 group">
+                        {videoSrc ? (
+                            <video
+                                ref={videoRef}
+                                src={videoSrc}
+                                className="w-full h-full object-contain"
+                                onClick={handlePlayPause}
+                                onEnded={() => setIsPlaying(false)}
+                            />
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-muted">No video loaded</div>
+                        )}
+
+                        {/* Play Overlay */}
+                        {videoSrc && !isPlaying && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors cursor-pointer" onClick={handlePlayPause}>
+                                <motion.div
+                                    whileHover={{ scale: 1.1 }}
+                                    className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-xl"
                                 >
-                                    {!isPlaying && (
+                                    <Play className="w-8 h-8 text-white fill-white ml-1" />
+                                </motion.div>
+                            </div>
+                        )}
+
+                        {/* Video Controls Overlay */}
+                        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center justify-between text-white">
+                                <span className="text-xs font-mono">00:00 / {videoRef.current?.duration ? new Date(videoRef.current.duration * 1000).toISOString().substr(14, 5) : "--:--"}</span>
+                                <div className="flex gap-4">
+                                    <Volume2 className="w-5 h-5 cursor-pointer hover:text-electric-blue" />
+                                    <Maximize2 className="w-5 h-5 cursor-pointer hover:text-electric-blue" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* RIGHT: Conversational AI Sidebar (35%) */}
+            <div className="w-[450px] bg-surface flex flex-col relative shadow-2xl border-l-[1px] border-white/5">
+                {/* Chat Header */}
+                <div className="p-4 border-b border-border-dim flex items-center gap-3 bg-surface/95 backdrop-blur z-10">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-electric-blue to-purple-600 flex items-center justify-center shadow-lg shadow-electric-blue/20">
+                        <Bot className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-sm font-bold text-white">AI Video Assistant</h2>
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                            <span className="text-[10px] text-muted font-medium">Online & Ready</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Messages Area */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                    {chatHistory.map((entry, i) => (
+                        <motion.div
+                            key={i}
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ duration: 0.3 }}
+                            className={`flex ${entry.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                            <div className={`max-w-[85%] flex gap-3 ${entry.type === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                                {/* Avatar */}
+                                <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center mt-1 ${entry.type === 'user' ? 'bg-deep-slate border border-white/10' : 'bg-gradient-to-br from-electric-blue to-purple-600 shadow-lg shadow-electric-blue/20'
+                                    }`}>
+                                    {entry.type === 'user' ? <User className="w-4 h-4 text-white" /> : <Sparkles className="w-4 h-4 text-white" />}
+                                </div>
+
+                                {/* Message Bubble */}
+                                <div className="flex flex-col gap-1">
+                                    <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${entry.type === 'user'
+                                            ? 'bg-electric-blue text-white rounded-tr-none'
+                                            : entry.type === 'error'
+                                                ? 'bg-danger/10 border border-danger/20 text-danger rounded-tl-none'
+                                                : 'bg-deep-slate border border-white/5 text-white/90 rounded-tl-none'
+                                        }`}>
+                                        <div dangerouslySetInnerHTML={{ __html: entry.message.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-bold">$1</strong>') }} />
+                                    </div>
+
+                                    {/* Timestamp */}
+                                    <span className={`text-[10px] text-muted/40 ${entry.type === 'user' ? 'text-right' : 'text-left'}`}>
+                                        {entry.timestamp}
+                                    </span>
+
+                                    {/* Action Card (Only for AI success responses) */}
+                                    {entry.type === 'ai' && entry.filename && (
                                         <motion.div
-                                            whileHover={{ scale: 1.1 }}
-                                            whileTap={{ scale: 0.95 }}
-                                            className="w-16 h-16 bg-electric-blue rounded-full flex items-center justify-center shadow-lg shadow-electric-blue/30"
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="mt-2 p-3 bg-black/20 border border-white/5 rounded-xl flex items-center justify-between gap-3"
                                         >
-                                            <Play className="w-6 h-6 text-white ml-1" />
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                <div className="w-10 h-10 bg-black/40 rounded-lg flex items-center justify-center shrink-0">
+                                                    <Play className="w-4 h-4 text-white/50" />
+                                                </div>
+                                                <div className="overflow-hidden">
+                                                    <p className="text-xs font-medium text-white truncate">{entry.filename}</p>
+                                                    <p className="text-[10px] text-muted">Ready for preview</p>
+                                                </div>
+                                            </div>
+                                            <a href={entry.url} download className="shrink-0">
+                                                <button className="p-2 hover:bg-white/10 rounded-lg text-electric-blue transition-colors">
+                                                    <Download className="w-4 h-4" />
+                                                </button>
+                                            </a>
                                         </motion.div>
                                     )}
-                                </button>
-                            )}
-                            {/* Edited badge */}
-                            {currentFilename && currentFilename !== uploadedFile && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: -10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="absolute top-3 left-3 text-[10px] text-white bg-success/80 px-2 py-1 rounded flex items-center gap-1"
-                                >
-                                    <Sparkles className="w-3 h-3" /> AI Enhanced
-                                </motion.div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Playback Controls */}
-                    <div className="flex items-center justify-between px-6 py-2 bg-surface/50">
-                        <span className="text-xs font-mono text-danger">{formatTime(playheadPosition)}</span>
-                        <div className="flex items-center gap-4">
-                            <button className="text-muted hover:text-white cursor-pointer"><Volume2 className="w-4 h-4" /></button>
-                            <button className="text-muted hover:text-white cursor-pointer"><Maximize2 className="w-4 h-4" /></button>
-                        </div>
-                        <span className="text-xs font-mono text-muted">{formatTime(duration)}</span>
-                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    ))}
+                    {isGenerating && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                            <div className="max-w-[85%] flex gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-electric-blue to-purple-600 flex items-center justify-center mt-1">
+                                    <Sparkles className="w-4 h-4 text-white animate-spin-slow" />
+                                </div>
+                                <div className="px-4 py-3 bg-deep-slate border border-white/5 rounded-2xl rounded-tl-none flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                    <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                    <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                    <div ref={chatEndRef} />
                 </div>
 
-                {/* Properties + Chat Panel */}
-                <aside className="w-80 bg-surface border-l border-border-dim overflow-y-auto flex flex-col">
-                    {/* Panel Toggle */}
-                    <div className="flex border-b border-border-dim">
-                        <button
-                            onClick={() => setShowChat(false)}
-                            className={`flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-colors ${!showChat ? 'text-white border-b-2 border-electric-blue' : 'text-muted hover:text-white'}`}
-                        >
-                            Properties
-                        </button>
-                        <button
-                            onClick={() => setShowChat(true)}
-                            className={`flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-colors flex items-center justify-center gap-1.5 ${showChat ? 'text-white border-b-2 border-electric-blue' : 'text-muted hover:text-white'}`}
-                        >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            AI Chat
-                            {chatHistory.length > 0 && (
-                                <span className="bg-electric-blue text-white text-[9px] px-1.5 py-0.5 rounded-full">{chatHistory.length}</span>
-                            )}
-                        </button>
-                    </div>
-
-                    {!showChat ? (
-                        /* Properties Panel */
-                        <div className="flex-1">
-                            {/* Transform */}
-                            <div className="p-4 border-b border-border-dim">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h4 className="text-sm font-semibold text-white">Transform</h4>
-                                    <ChevronDown className="w-4 h-4 text-muted" />
-                                </div>
-                                <div className="space-y-5">
-                                    <Slider label="OPACITY" value={opacity} onChange={setOpacity} displayValue={`${opacity}%`} />
-                                    <Slider label="SCALE" value={scale} onChange={setScale} displayValue={`${scale}%`} />
-                                </div>
-                            </div>
-
-                            {/* AI Enhancements */}
-                            <div className="p-4">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Sparkles className="w-4 h-4 text-electric-blue" />
-                                    <h4 className="text-sm font-semibold text-white">AI Enhancements</h4>
-                                </div>
-                                <div className="space-y-1">
-                                    <Toggle label="Background Removal" enabled={bgRemoval} onChange={setBgRemoval} />
-                                    <Toggle label="Smart Upscaling" enabled={smartUpscale} onChange={setSmartUpscale} />
-                                    <Toggle label="Eye Contact Fix" enabled={eyeContact} onChange={setEyeContact} />
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        /* Chat History Panel */
-                        <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                            {chatHistory.length === 0 && (
-                                <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <Sparkles className="w-8 h-8 text-electric-blue/30 mb-3" />
-                                    <p className="text-sm text-muted">Type a command below to start editing</p>
-                                    <p className="text-[10px] text-muted/60 mt-1">e.g. &quot;trim the video&quot; or &quot;apply B&amp;W filter&quot;</p>
-                                </div>
-                            )}
-
-                            {chatHistory.map((entry, i) => (
-                                <motion.div
+                {/* Input Area */}
+                <div className="p-4 bg-surface border-t border-border-dim space-y-4">
+                    {/* Suggested Chips */}
+                    {!isGenerating && (
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none mask-fade-right">
+                            {SUGGESTED_ACTIONS.map((action, i) => (
+                                <button
                                     key={i}
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className={`rounded-lg p-3 text-xs ${entry.type === 'user'
-                                            ? 'bg-electric-blue/10 border border-electric-blue/20 ml-6'
-                                            : entry.type === 'error'
-                                                ? 'bg-danger/10 border border-danger/20 mr-6'
-                                                : 'bg-soft-gray border border-border-dim mr-6'
-                                        }`}
+                                    onClick={() => handleGenerateEdit(action.query)}
+                                    className="px-3 py-1.5 bg-deep-slate hover:bg-white/10 border border-white/5 hover:border-electric-blue/50 rounded-full text-xs text-white/80 hover:text-white transition-all whitespace-nowrap flex items-center gap-1.5 shadow-sm"
                                 >
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                        {entry.type === 'user' && <span className="text-electric-blue font-bold">You</span>}
-                                        {entry.type === 'ai' && <><Sparkles className="w-3 h-3 text-electric-blue" /><span className="text-electric-blue font-bold">Gemini 3</span></>}
-                                        {entry.type === 'error' && <><AlertCircle className="w-3 h-3 text-danger" /><span className="text-danger font-bold">Error</span></>}
-                                        <span className="text-muted/50 ml-auto">{entry.timestamp}</span>
-                                    </div>
-                                    <p className="text-white/80 leading-relaxed" dangerouslySetInnerHTML={{
-                                        __html: entry.message.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-                                    }} />
-                                    {entry.url && (
-                                        <a
-                                            href={entry.url}
-                                            download
-                                            className="inline-flex items-center gap-1 mt-2 text-electric-blue hover:underline text-[10px]"
-                                        >
-                                            <Download className="w-3 h-3" /> Download {entry.filename}
-                                        </a>
-                                    )}
-                                </motion.div>
+                                    {action.label}
+                                </button>
                             ))}
-                            <div ref={chatEndRef} />
                         </div>
                     )}
-                </aside>
-            </div>
 
-            {/* AI Command Bar */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-surface border-t border-border-dim">
-                <Button
-                    variant="primary"
-                    size="sm"
-                    icon={isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                    onClick={handleGenerateEdit}
-                    disabled={isGenerating || !currentFilename || !aiQuery.trim()}
-                >
-                    {isGenerating ? 'PROCESSING...' : 'GENERATE EDIT'}
-                </Button>
-                <div className="flex-1 relative">
-                    <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-                    <input
-                        value={aiQuery}
-                        onChange={(e) => setAiQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder={uploadedFile
-                            ? "Type: trim, b&w, speed up, slow down, reverse, blur, rotate..."
-                            : "Upload a video first from the Dashboard..."
-                        }
-                        disabled={isGenerating}
-                        className="w-full bg-deep-slate border border-border-dim rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-muted focus:outline-none focus:border-electric-blue disabled:opacity-50"
-                    />
-                </div>
-                <div className="flex items-center gap-2 ml-2">
-                    <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Scissors className="w-4 h-4" /></button>
-                    <button className="text-muted hover:text-white p-1.5 cursor-pointer"><Copy className="w-4 h-4" /></button>
-                    <button
-                        onClick={toggleMagnet}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold cursor-pointer transition-colors ${isMagnetEnabled ? 'text-electric-blue bg-electric-blue/10' : 'text-muted'
-                            }`}
-                    >
-                        <Magnet className="w-4 h-4" />
-                        MAGNET
-                    </button>
-                </div>
-            </div>
-
-            {/* AI Generation Progress Bar */}
-            <AnimatePresence>
-                {isGenerating && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="bg-deep-slate border-t border-border-dim px-4 py-3"
-                    >
-                        <div className="flex items-center gap-3">
-                            <Sparkles className="w-4 h-4 text-electric-blue animate-pulse" />
-                            <div className="flex-1">
-                                <div className="flex justify-between mb-1">
-                                    <span className="text-xs text-white">Processing with ffmpeg...</span>
-                                    <span className="text-xs text-electric-blue font-bold">{Math.round(generationProgress)}%</span>
-                                </div>
-                                <div className="w-full h-1.5 bg-soft-gray rounded-full overflow-hidden">
-                                    <motion.div
-                                        className="h-full bg-electric-blue rounded-full"
-                                        animate={{ width: `${generationProgress}%` }}
-                                        transition={{ duration: 0.3 }}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Timeline */}
-            <div className="bg-surface border-t border-border-dim">
-                {/* Time ruler */}
-                <div className="relative h-6 border-b border-border-dim ml-36">
-                    {timeMarkers.map((marker) => (
-                        <span
-                            key={marker.pos}
-                            className="absolute text-[10px] text-muted top-1"
-                            style={{ left: `${(marker.pos / duration) * 100}%` }}
-                        >
-                            {marker.label}
-                        </span>
-                    ))}
-                    {/* Playhead */}
-                    <div
-                        className="absolute top-0 w-[2px] h-full bg-danger z-10"
-                        style={{ left: `${playheadLeft}%` }}
-                    >
-                        <div className="absolute -top-0.5 -left-1.5 w-[6px] h-[6px] bg-danger rounded-sm rotate-45" />
-                    </div>
-                </div>
-
-                {/* Track Labels + Tracks */}
-                <div className="text-xs">
-                    {/* AI Segments Track */}
-                    <div className="flex border-b border-border-dim">
-                        <div className="w-36 px-3 py-2 flex items-center gap-2 border-r border-border-dim shrink-0">
-                            <Sparkles className="w-3.5 h-3.5 text-electric-blue" />
-                            <span className="text-electric-blue font-semibold">AI SEGMENTS</span>
-                        </div>
-                        <div className="flex-1 relative h-10">
-                            {segments.filter(s => s.track === 'ai').map(seg => (
-                                <motion.div
-                                    key={seg.id}
-                                    className="absolute top-1 h-8 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-grab active:cursor-grabbing border border-white/10"
-                                    style={{
-                                        ...getSegmentStyle(seg),
-                                        backgroundColor: seg.color || '#007AFF',
-                                    }}
-                                    whileHover={{ y: -1 }}
-                                    drag="x"
-                                    dragConstraints={{ left: 0, right: 0 }}
-                                    dragElastic={0}
-                                >
-                                    <span className="truncate px-2">{seg.title}</span>
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Video 1 Track */}
-                    <div className="flex border-b border-border-dim">
-                        <div className="w-36 px-3 py-2 flex items-center gap-2 border-r border-border-dim shrink-0">
-                            <span className="text-white font-medium">VIDEO 1</span>
-                            <Eye className="w-3 h-3 text-muted ml-auto" />
-                            <Trash2 className="w-3 h-3 text-muted" />
-                        </div>
-                        <div className="flex-1 relative h-12">
-                            {segments.filter(s => s.track === 'video1').map(seg => (
-                                <motion.div
-                                    key={seg.id}
-                                    className="absolute top-1.5 h-9 bg-soft-gray rounded-md flex items-center text-[10px] text-white cursor-grab active:cursor-grabbing border border-border-dim overflow-hidden"
-                                    style={getSegmentStyle(seg)}
-                                    whileHover={{ y: -1 }}
-                                    drag="x"
-                                    dragConstraints={{ left: 0, right: 0 }}
-                                    dragElastic={0}
-                                >
-                                    <div className="w-12 h-full bg-deep-slate shrink-0" />
-                                    <span className="truncate px-2 font-medium">{seg.title}</span>
-                                    {seg.label && (
-                                        <span className="text-[8px] text-electric-blue ml-auto mr-2 whitespace-nowrap">{seg.label}</span>
-                                    )}
-                                </motion.div>
-                            ))}
-                            <div
-                                className="absolute top-0 w-[2px] h-full bg-danger z-10"
-                                style={{ left: `${playheadLeft}%` }}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Audio 1 Track */}
-                    <div className="flex border-b border-border-dim">
-                        <div className="w-36 px-3 py-2 flex items-center gap-2 border-r border-border-dim shrink-0">
-                            <span className="text-white font-medium">AUDIO 1</span>
-                            <Volume2 className="w-3 h-3 text-muted ml-auto" />
-                            <Trash2 className="w-3 h-3 text-muted" />
-                        </div>
-                        <div className="flex-1 relative h-10">
-                            {segments.filter(s => s.track === 'audio1').map(seg => (
-                                <motion.div
-                                    key={seg.id}
-                                    className="absolute top-1 h-8 bg-success/20 border border-success/30 rounded-md flex items-center text-[10px] text-success font-medium cursor-grab active:cursor-grabbing"
-                                    style={getSegmentStyle(seg)}
-                                    whileHover={{ y: -1 }}
-                                    drag="x"
-                                    dragConstraints={{ left: 0, right: 0 }}
-                                    dragElastic={0}
-                                >
-                                    <span className="truncate px-2">{seg.title}</span>
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Timeline Footer */}
-                <div className="flex items-center justify-between px-4 py-1.5 text-[10px] text-muted border-t border-border-dim">
-                    <div className="flex items-center gap-3">
-                        <Search className="w-3 h-3" />
-                        <input
-                            type="range"
-                            min={0.5}
-                            max={3}
-                            step={0.1}
-                            value={zoomLevel}
-                            onChange={(e) => setZoomLevel(Number(e.target.value))}
-                            className="w-24 accent-electric-blue"
+                    {/* Text Input */}
+                    <div className="relative">
+                        <textarea
+                            value={aiQuery}
+                            onChange={(e) => setAiQuery(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Describe how you want to edit the video..."
+                            className="w-full bg-deep-slate border border-border-dim hover:border-white/10 focus:border-electric-blue rounded-xl pl-4 pr-12 py-3 text-sm text-white placeholder-muted focus:outline-none resize-none h-[52px] shadow-inner transition-colors"
+                            disabled={isGenerating}
                         />
+                        <button
+                            onClick={() => handleGenerateEdit()}
+                            disabled={!aiQuery.trim() || isGenerating}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-electric-blue hover:bg-electric-blue-hover disabled:bg-white/5 disabled:text-white/20 text-white rounded-lg transition-all shadow-lg shadow-electric-blue/20"
+                        >
+                            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 ml-0.5" />}
+                        </button>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <span className="flex items-center gap-1">
-                            <Sparkles className="w-3 h-3 text-electric-blue" />
-                            Powered by <strong className="text-white">Gemini 3</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 bg-success rounded-full" />
-                            Online
-                        </span>
-                        <span>Auto-save: 2m ago</span>
-                    </div>
+                    <p className="text-[10px] text-center text-muted/40">
+                        AI can make mistakes. Please review generated clips.
+                    </p>
                 </div>
             </div>
         </div>
